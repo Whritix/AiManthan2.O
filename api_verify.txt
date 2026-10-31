@@ -1,0 +1,63 @@
+{
+  "available": true,
+  "metrics": {
+    "weights": "artifacts/models/detector_best.pt",
+    "evaluated_from": "C:\\Games\\Indore\\Indore\\artifacts\\runs\\neu_yolo11s_1024_aug\\weights\\best.pt",
+    "weights_sha256": "617494900d7082ee309e93f3fac8dc97a7a8b9a8b1bf8545e5d7153ba2f3e209",
+    "split": "test",
+    "imgsz": 640,
+    "nms_iou": 0.6,
+    "rect": false,
+    "overall": {
+      "precision": 0.7802439887460084,
+      "recall": 0.6867369890534306,
+      "map50": 0.7533522484337343,
+      "map50_95": 0.37289010573693604,
+      "n_images": 225
+    },
+    "per_class": {
+      "crazing": {
+        "precision": 0.5189941569475034,
+        "recall": 0.3434343434343434,
+        "map50": 0.3902369755088781,
+        "map50_95": 0.1377722756487877,
+        "n_images": 45
+      },
+      "inclusion": {
+        "precision": 0.7803290000847078,
+        "recall": 0.6845637583892618,
+        "map50": 0.7924316435426656,
+        "map50_95": 0.3615579405964319,
+        "n_images": 45
+      },
+      "patches": {
+        "precision": 0.8525350996131176,
+        "recall": 0.8076855900974452,
+        "map50": 0.8790453470921799,
+        "map50_95": 0.5113316279462385,
+        "n_images": 45
+      },
+      "pitted_surface": {
+        "precision": 0.9009320208727567,
+        "recall": 0.7105520413297797,
+        "map50": 0.7983081121128046,
+        "map50_95": 0.46972460336817495,
+        "n_images": 45
+      },
+      "scratches": {
+        "precision": 0.8484296662119561,
+        "recall": 0.8874492120163227,
+        "map50": 0.9067391639121436,
+        "map50_95": 0.3840640811250469,
+        "n_images": 45
+      }
+    },
+    "speed_ms": {
+      "preprocess": 0.22786088876374477,
+      "inference": 5.912483999984236,
+      "loss": 0.0002804443809307284,
+      "postprocess": 0.7318604443894906
+    },
+    "created_at_ms": 1793293049945,
+    "source": "artifacts/eval/canonical_yolo11s_1024aug_640_deploy.json",
+    "metric_note": "mAP from the full PR curve at conf=0.001; P/R at the fix

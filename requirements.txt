@@ -1,0 +1,23 @@
+# Core web and API
+fastapi>=0.115.0
+uvicorn[standard]>=0.30.0
+pydantic>=2.8.0
+starlette>=0.38.0
+
+# Computer Vision and ML
+numpy>=1.26.0
+opencv-python>=4.10.0
+torch>=2.4.0
+torchvision>=0.19.0
+ultralytics>=8.3.0
+onnx>=1.16.0
+onnxruntime>=1.20.0
+
+# Utilities and evaluation
+pandas>=2.2.0
+matplotlib>=3.9.0
+requests>=2.32.0
+websockets>=13.0
+scipy>=1.14.0
+scikit-learn>=1.4.0
+tqdm>=4.66.0

@@ -1,0 +1,30 @@
+# Python
+__pycache__/
+*.py[cod]
+.venv/
+venv/
+# Local settings and secrets
+.env
+.env.*
+!.env.example
+Ultralytics/Ultralytics/settings.json
+# Generated datasets, runs, databases and logs
+data/
+runs/
+artifacts/
+*.db
+*.sqlite
+*.sqlite3
+*.log
+# Model binaries: keep them out of Git; obtain separately
+*.pt
+*.onnx
+*.engine
+*.safetensors
+# Frontend dependencies and build output
+web/node_modules/
+web/dist/
+web/.vite/
+# OS files
+Thumbs.db
+.DS_Store
