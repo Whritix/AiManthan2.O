@@ -4,7 +4,7 @@ from __future__ import annotations
 import asyncio
 import threading
 import time
-from collections import deque
+from collections import OrderedDict, deque
 from typing import Any
 
 
@@ -18,6 +18,7 @@ class Hub:
         self._queues: set[asyncio.Queue[dict[str, Any]]] = set()
         self._times: deque[float] = deque(maxlen=240)
         self._recent: deque[dict[str, Any]] = deque(maxlen=120)
+        self._jpegs: OrderedDict[str, bytes] = OrderedDict()
 
     def bind_loop(self, loop: asyncio.AbstractEventLoop) -> None:
         self._loop = loop
@@ -36,6 +37,11 @@ class Hub:
     def latest_jpeg(self) -> bytes:
         with self._lock:
             return self._latest_jpeg
+
+    def jpeg_for(self, frame_id: str) -> bytes | None:
+        """Return the exact processed image paired with a published frame result."""
+        with self._lock:
+            return self._jpegs.get(frame_id)
 
     @property
     def recent(self) -> list[dict[str, Any]]:
@@ -65,6 +71,14 @@ class Hub:
             self._seq += 1
             self._times.append(now)
             self._recent.append(frame)
+            frame_id = frame.get("frame_id")
+            if frame_id and jpeg:
+                self._jpegs[frame_id] = jpeg
+                self._jpegs.move_to_end(frame_id)
+                # WebSocket clients keep at most eight queued events; a short
+                # rolling JPEG window is enough to cover network/render delay.
+                while len(self._jpegs) > 32:
+                    self._jpegs.popitem(last=False)
             loop = self._loop
             queues = list(self._queues)
         if loop is None or not loop.is_running():

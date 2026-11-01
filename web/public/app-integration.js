@@ -9,15 +9,30 @@
   let vlmReady = false;
   let vlmReportFilename = null;
   let initialReportRoutingDone = false;
+  let latestInspectionFrame = null;
   let zoom = 1;
   const confidencePercent = (d) => {
     const raw = Number(d.confidence ?? d.conf ?? 0);
     return Math.min(100, Math.max(0, raw <= 1 ? raw * 100 : raw));
   };
+  function snapshotLiveStream() {
+    const stream = $("#stream");
+    if (!stream?.complete || !stream.naturalWidth || !stream.naturalHeight) return "";
+    try {
+      const canvas = document.createElement("canvas");
+      canvas.width = stream.naturalWidth;
+      canvas.height = stream.naturalHeight;
+      canvas.getContext("2d")?.drawImage(stream, 0, 0, canvas.width, canvas.height);
+      return canvas.toDataURL("image/jpeg", 0.9);
+    } catch {
+      return "";
+    }
+  }
   function setZoom(next) {
     zoom = Math.min(2.5, Math.max(1, Math.round(next * 4) / 4));
-    const stream = $("#stream");
-    if (stream) stream.style.transform = `scale(${zoom})`;
+    document.querySelectorAll("#stream, #streamBuffer").forEach((stream) => {
+      stream.style.transform = `scale(${zoom})`;
+    });
     const level = $("#zoomLevel");
     if (level) level.textContent = `${Math.round(zoom * 100)}%`;
     const out = $("#zoomOut"), inside = $("#zoomIn");
@@ -75,8 +90,72 @@
     </div>`;
   }
 
+  function showFrameDetails() {
+    if (!latestInspectionFrame) {
+      window.toast?.("No processed frame yet · upload an image or video first");
+      return;
+    }
+    const frame = latestInspectionFrame;
+    let dialog = $("#frameDetailsDialog");
+    if (!dialog) {
+      dialog = document.createElement("dialog");
+      dialog.id = "frameDetailsDialog";
+      dialog.className = "review-dialog frame-detail-dialog";
+      dialog.setAttribute("aria-labelledby", "frameDetailsTitle");
+      dialog.innerHTML = `<div class="frame-detail-head"><div><h2 id="frameDetailsTitle">Current frame detections</h2><p id="frameDetailsSummary"></p></div><button type="button" class="button" data-frame-details-close aria-label="Close detection details">Close</button></div><div class="frame-detail-layout"><div class="frame-detail-preview"><img id="frameDetailsImage" alt="Current inspection frame with detection overlays"><div id="frameDetailsNoImage" class="hidden">Annotated frame image is unavailable.</div></div><div class="frame-detail-list" id="frameDetailsList"></div></div>`;
+      document.body.appendChild(dialog);
+      dialog.addEventListener("click", (event) => {
+        if (event.target === dialog || event.target.closest("[data-frame-details-close]")) dialog.close();
+      });
+    }
+
+    const detections = Array.isArray(frame.detections) ? frame.detections : [];
+    const anomaly = frame.anomaly || {};
+    const regions = Array.isArray(anomaly.regions) ? anomaly.regions : [];
+    const frameNo = frame.frame_index == null ? "—" : String(frame.frame_index).padStart(6, "0");
+    const product = pretty(frame.profile || "unknown product");
+    const summary = $("#frameDetailsSummary");
+    if (summary) summary.textContent = `Frame ${frameNo} · ${product} · ${detections.length} defect${detections.length === 1 ? "" : "s"} · ${String(frame.verdict || "review").toUpperCase()} · ${stamp(frame.ts_ms)}`;
+
+    const image = $("#frameDetailsImage");
+    const noImage = $("#frameDetailsNoImage");
+    const imageUrl = frame.overlay_url || frame.image_url || snapshotLiveStream();
+    if (image && imageUrl) {
+      image.src = imageUrl;
+      image.classList.remove("hidden");
+      noImage?.classList.add("hidden");
+      image.onerror = () => { image.classList.add("hidden"); noImage?.classList.remove("hidden"); };
+    } else {
+      if (image) { image.removeAttribute("src"); image.classList.add("hidden"); }
+      noImage?.classList.remove("hidden");
+    }
+
+    const list = $("#frameDetailsList");
+    if (list) {
+      if (detections.length) {
+        list.innerHTML = `<h3>Detected defects</h3>${detections.map((d, index) => {
+          const bbox = Array.isArray(d.bbox) ? d.bbox : [];
+          const [x, y, width, height] = bbox.map((value) => Math.round(Number(value) || 0));
+          const confidence = confidencePercent(d).toFixed(1);
+          const severity = Math.max(1, Math.min(4, Number(d.severity) || 1));
+          const name = d.class || d.class_name || d.name || d.label || "Unknown defect";
+          return `<article class="frame-detail-item"><div><b>${index + 1}. ${esc(pretty(name))}</b><strong>${confidence}%</strong></div><p>Severity ${severity}/4 · ${esc(d.source || "detector")}${d.votes ? ` · ${Number(d.votes)} frame votes` : ""}</p><small>${bbox.length >= 4 ? `Box: x ${x}, y ${y}, width ${width}, height ${height} px` : "Bounding box unavailable"}${Number.isFinite(Number(d.area_frac)) && Number(d.area_frac) > 0 ? ` · ${ (Number(d.area_frac) * 100).toFixed(2) }% of frame` : ""}</small></article>`;
+        }).join("")}`;
+      } else if (anomaly.is_anomaly && regions.length) {
+        list.innerHTML = `<h3>Unclassified anomaly regions</h3>${regions.map((region, index) => {
+          const [x, y, width, height] = (region.bbox || []).map((value) => Math.round(Number(value) || 0));
+          return `<article class="frame-detail-item"><div><b>Region ${index + 1}</b><strong>Score ${Number(region.score || 0).toFixed(2)}</strong></div><small>Box: x ${x}, y ${y}, width ${width}, height ${height} px · ${Number(region.area || 0).toLocaleString()} pixels</small></article>`;
+        }).join("")}<p class="frame-detail-note">Anomaly gate regions are unclassified; they are not named YOLO defects.</p>`;
+      } else {
+        list.innerHTML = `<h3>No defects detected</h3><p class="frame-detail-note">The current frame has no named defect boxes.</p>`;
+      }
+    }
+    dialog.showModal();
+  }
+
   window.applyInspectionFrame = (frame) => {
     if (!frame) return;
+    latestInspectionFrame = frame;
     document.body.classList.add("api-has-frame");
     const verdict = String(frame.verdict || "review").toLowerCase();
     const badge = $("#verdictBadge");
@@ -153,6 +232,44 @@
 
   function setLive(frame) {
     if (!frame) return;
+    const stream = $("#stream");
+    if (stream && frame.frame_id) {
+      const frameId = String(frame.frame_id);
+      if (stream.dataset.syncedFrameId !== frameId) {
+        let buffer = $("#streamBuffer");
+        if (!buffer) {
+          buffer = document.createElement("img");
+          buffer.id = "streamBuffer";
+          buffer.alt = "";
+          buffer.setAttribute("aria-hidden", "true");
+          stream.after(buffer);
+        }
+        buffer.dataset.pendingFrameId = frameId;
+        buffer.style.transform = stream.style.transform || `scale(${zoom})`;
+        buffer.onload = () => {
+          if (buffer.dataset.pendingFrameId !== frameId) return;
+          const current = $("#stream");
+          if (!current) return;
+          current.onload = null;
+          current.onerror = null;
+          current.id = "streamBuffer";
+          if (current.getAttribute("src")?.includes("/live.mjpg")) current.removeAttribute("src");
+          delete buffer.dataset.pendingFrameId;
+          buffer.dataset.syncedFrameId = frameId;
+          buffer.onload = null;
+          buffer.onerror = null;
+          buffer.id = "stream";
+        };
+        buffer.onerror = () => {
+          if (buffer.dataset.pendingFrameId === frameId) {
+            delete buffer.dataset.pendingFrameId;
+            buffer.onload = null;
+            buffer.onerror = null;
+          }
+        };
+        buffer.src = `/api/frames/${encodeURIComponent(frameId)}/image`;
+      }
+    }
     window.applyInspectionFrame?.(frame);
     document.body.classList.add("api-has-frame");
     const source = $("#source");
@@ -388,6 +505,11 @@
   };
 
   document.addEventListener("click", async (event) => {
+    if (event.target.closest("#details")) {
+      event.preventDefault(); event.stopImmediatePropagation();
+      showFrameDetails();
+      return;
+    }
     if (event.target.closest("#runVlm")) {
       event.preventDefault(); event.stopImmediatePropagation();
       runVlmAdvice();

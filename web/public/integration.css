@@ -5,6 +5,8 @@
 #livePage .stage{height:min(58vh,640px);min-height:320px;background:#07060a}
 #livePage .stage img#stream{object-fit:contain!important;background:#07060a}
 #livePage .stage img#stream{transform-origin:center center;transition:transform .18s ease}
+#livePage .stage img#stream{opacity:1!important}
+#livePage .stage img#streamBuffer{object-fit:contain!important;background:#07060a;opacity:0!important;transform-origin:center center;transition:transform .18s ease}
 #livePage .zoom{z-index:8;font:600 12px Arial,sans-serif;gap:10px;padding:6px 9px;background:#15191af0}
 #livePage .zoom button{min-width:24px;min-height:24px;font:600 17px Arial,sans-serif;cursor:pointer}
 #livePage .zoom button:disabled{opacity:.4;cursor:default}
@@ -65,3 +67,18 @@
 .account-badge button{padding:4px 7px;border:1px solid #49404f;border-radius:4px;background:transparent;color:#eeeaf4;font-size:10px}
 body[data-role="employee"] .branch-item[data-page="datasets"],body[data-role="employee"] .branch-item[data-page="audit"],body[data-role="employee"] .branch-item[data-page="settings"]{display:none}
 body[data-role="employee"] .menu-group[data-open] .branch-item[data-page="datasets"],body[data-role="employee"] .menu-group[data-open] .branch-item[data-page="audit"],body[data-role="employee"] .menu-group[data-open] .branch-item[data-page="settings"]{display:none}
+.frame-detail-dialog{width:min(980px,calc(100vw - 32px));max-height:min(88vh,900px);overflow:auto}
+.frame-detail-head{display:flex;justify-content:space-between;align-items:flex-start;gap:16px;margin-bottom:16px}
+.frame-detail-head h2{margin:0 0 6px}
+.frame-detail-head p{margin:0;color:#b9abba;font-size:12px}
+.frame-detail-layout{display:grid;grid-template-columns:minmax(0,1.15fr) minmax(260px,.85fr);gap:16px;align-items:start}
+.frame-detail-preview{min-height:240px;display:grid;place-items:center;background:#09080d;border:1px solid #ffffff24;border-radius:8px;overflow:hidden;color:#aaa2ae;font-size:12px;text-align:center}
+.frame-detail-preview img{display:block;width:100%;max-height:66vh;object-fit:contain}
+.frame-detail-preview img.hidden{display:none}
+.frame-detail-list h3{margin:0 0 9px;font-size:14px}
+.frame-detail-item{padding:12px 0;border-top:1px solid #ffffff20}
+.frame-detail-item>div{display:flex;justify-content:space-between;gap:12px;align-items:center}
+.frame-detail-item b{font-size:13px}
+.frame-detail-item strong{color:#e1bd85;font-size:13px;white-space:nowrap}
+.frame-detail-item p,.frame-detail-item small,.frame-detail-note{display:block;margin:6px 0 0;color:#b9abba;font-size:11px;line-height:1.5;overflow-wrap:anywhere}
+@media(max-width:680px){.frame-detail-layout{grid-template-columns:1fr}.frame-detail-preview{min-height:180px}.frame-detail-preview img{max-height:36vh}.frame-detail-head{align-items:flex-start}.frame-detail-head .button{padding:7px 9px}}

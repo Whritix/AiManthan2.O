@@ -3,14 +3,14 @@
     Inspectra - One-Command Demo Launcher (PowerShell)
 .DESCRIPTION
     Launches the real-time surface inspection pipeline and web UI.
-    Defaults to profile=steel, source=dataset, detector=auto.
+    Defaults to profile=steel, source=dataset, detector=unified.
 #>
 
 [CmdletBinding()]
 param (
     [string]$Profile = "steel",
     [string]$Source = "dataset",
-    [string]$Detector = "auto",
+    [string]$Detector = "unified",
     [int]$Port = 8000
 )
 

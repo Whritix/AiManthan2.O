@@ -481,6 +481,12 @@ class Pipeline:
             self._start_part(None, frame, self.settings.part_frames)
         self.frame_in_part += 1
         final = self.frame_in_part >= self.part.frames_total
+        if self.source == "video":
+            total_frames = self.capture.get(cv2.CAP_PROP_FRAME_COUNT)
+            position = self.capture.get(cv2.CAP_PROP_POS_FRAMES)
+            # Save the final partial inspection before the clip loops.
+            if total_frames > 0 and position >= total_frames:
+                final = True
         self._process(frame, None, self.frame_in_part, self.part.frames_total, final)
         if final:
             self.part = None

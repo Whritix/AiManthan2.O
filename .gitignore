@@ -12,6 +12,8 @@ Ultralytics/Ultralytics/settings.json
 data/
 runs/
 artifacts/
+/testdata/
+/hackathon_demo_test_50/
 *.db
 *.sqlite
 *.sqlite3

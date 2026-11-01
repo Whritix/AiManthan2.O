@@ -484,6 +484,15 @@ async def latest_frame(request: Request) -> dict[str, Any]:
     return {"seq": hub.seq, "frame": hub.latest, "fps": round(hub.fps, 2)}
 
 
+@app.get("/api/frames/{frame_id}/image")
+async def processed_frame_image(frame_id: str, request: Request) -> Response:
+    """Serve the JPEG rendered for this exact websocket result frame."""
+    jpeg = get_hub(request).jpeg_for(frame_id)
+    if jpeg is None:
+        raise HTTPException(404, "processed frame image expired; wait for the next frame")
+    return Response(jpeg, media_type="image/jpeg", headers={"Cache-Control": "no-store"})
+
+
 @app.put("/api/video")
 @app.put("/api/input")
 async def upload_demo_input(request: Request, filename: str = Query(..., min_length=1, max_length=255)) -> dict[str, Any]:
