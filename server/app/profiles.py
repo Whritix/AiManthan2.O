@@ -151,10 +151,12 @@ class ProfileRegistry:
         self._profiles = profiles
         self._report = None
 
-    @staticmethod
-    def _item(data: dict[str, Any], kind: str) -> Item:
+    def _item(self, data: dict[str, Any], kind: str) -> Item:
+        path = Path(data["path"])
+        if not path.is_absolute():
+            path = self.settings.project_root / path
         return Item(
-            path=data["path"],
+            path=str(path),
             class_name=data.get("class", kind),
             kind=data.get("kind", kind),
             boxes=list(data.get("boxes", [])),

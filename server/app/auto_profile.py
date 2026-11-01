@@ -12,6 +12,33 @@ import cv2
 import joblib
 import numpy as np
 
+SUPPORTED_FAMILIES = frozenset({"steel", "screw", "metal_nut", "transistor", "bottle"})
+
+
+def confirm_near_miss(identification: dict[str, Any], observation: dict[str, Any]) -> dict[str, Any]:
+    """Accept only close supported-family calls independently confirmed by the VLM."""
+    candidate = identification.get("candidate")
+    score = float(identification.get("confidence") or 0)
+    evidence = observation.get("visual_evidence") or []
+    if not (
+        identification.get("status") == "uncertain"
+        and candidate in SUPPORTED_FAMILIES
+        and 0.45 <= score < 0.55
+        and observation.get("product") == candidate
+        and not str(observation.get("uncertainty") or "").strip()
+        and len(evidence) >= 2
+    ):
+        return identification
+    return {
+        **identification,
+        "status": "identified",
+        "profile": candidate,
+        "method": "vlm_confirmed",
+        "visual_evidence": evidence[:3],
+        "domain_warning": "Product identity is likely, but this appearance differs from the defect model's training images. Review detections manually.",
+        "message": "Product family confirmed by the image classifier and local vision model.",
+    }
+
 
 class AutoProfileClassifier:
     def __init__(self, model_path: Path, confidence_floor: float = 0.55) -> None:
@@ -57,11 +84,15 @@ class AutoProfileClassifier:
                     "message": "Automatic product identification model is not installed."}
         vector = self.features(frame).reshape(1, -1)
         probabilities = self._model.predict_proba(vector)[0]
+        if not np.all(np.isfinite(probabilities)):
+            return {"status": "uncertain", "profile": None, "candidate": None, "confidence": 0.0,
+                    "message": "Product type is uncertain. Only steel, screw, metal nut, transistor, and bottle are supported."}
         best = int(np.argmax(probabilities))
         confidence = float(probabilities[best])
         profile = str(self._model.classes_[best])
-        status = "identified" if confidence >= self.confidence_floor else "uncertain"
+        status = "unsupported" if profile not in SUPPORTED_FAMILIES else ("identified" if confidence >= self.confidence_floor else "uncertain")
         return {"status": status, "profile": profile if status == "identified" else None,
                 "candidate": profile, "confidence": confidence,
                 "message": "Product family identified." if status == "identified"
-                else "Product type is uncertain; use a clearer, centered image."}
+                else "This object is outside the five supported product families." if status == "unsupported"
+                else "Product type is uncertain; use a clearer, centered image of steel, screw, metal nut, transistor, or bottle."}

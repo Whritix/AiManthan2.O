@@ -58,6 +58,13 @@ class Routing(BaseModel):
     reason: str
 
 
+class SimulatedPLC(BaseModel):
+    action: Literal["STOP", "MARK", "DIVERT", "LOG"]
+    target: str
+    reason: str
+    demo_only: bool = True
+
+
 class PartState(BaseModel):
     index: int
     total: int
@@ -87,6 +94,8 @@ class FrameResult(BaseModel):
     verdict: Verdict
     routing: Routing | None = None
     severity: int = 1
+    simulated_plc: SimulatedPLC | None = None
+    risk: dict[str, Any] | None = None
     part_state: PartState
     image_url: str | None = None
     overlay_url: str | None = None

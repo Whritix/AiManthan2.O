@@ -1,0 +1,7 @@
+# Potential consequences of flagged defects
+
+When a named YOLO defect produces a **REVIEW** or **FAIL** decision, the Live inspection page shows a class-specific scenario: the immediate concern, what could happen if the item were used, and what evidence is needed to estimate life. The same fields are included in the report CSV; the top flagged defect is also included in the report JSON and ZIP summary. These sentences come from reviewed rules in `server/app/risk_explanation.py`, not from a VLM prediction.
+
+The UI does **not** estimate when an item will break. A single image does not measure crack or pit depth, material properties, loads, operating temperature, duty cycles, electrical condition, or handling history. Even a high YOLO confidence means confidence in a visual class, not a failure probability or damaged-area percentage. A product engineer must confirm the defect and perform appropriate tests before making a use, repair, or disposal decision.
+
+This follows the role of failure-mode analysis: identify a possible failure and its effect, then assess severity and action using evidence. [ASQ's FMEA overview](https://asq.org/quality-resources/fmea) describes this process. For structural life prediction, [NASA's damage-tolerance guidance](https://www.nasa.gov/centers-and-facilities/nesc/copv-damage-tolerance-life-demonstration-guidelines/) calls for stress, material properties, thickness, initial crack size, load spectrum, and analysis or testing. The prototype does not have those inputs.

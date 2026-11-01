@@ -122,6 +122,11 @@ class YoloDetector:
         self.ready = True
         self.warning = "" if self.device != "cpu" else "cpu_fallback"
 
+    def set_profile(self, profile: Any) -> None:
+        """Retarget the loaded unified model without loading its weights again."""
+        self.allowed = set(profile.classes)
+        self.class_prefix = profile.id if self.settings.detector_mode == "unified" else None
+
     def predict(self, frame: np.ndarray, item: Any | None = None) -> list[Box]:
         results = self.model.predict(
             source=frame,

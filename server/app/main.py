@@ -9,25 +9,32 @@ import io
 import json
 import time
 import uuid
+import zipfile
+from collections import Counter
 from contextlib import asynccontextmanager
 from pathlib import Path
-from typing import Any, AsyncIterator
+from typing import Any, AsyncIterator, Literal
 
 from fastapi import FastAPI, HTTPException, Query, Request, WebSocket, WebSocketDisconnect
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse, HTMLResponse, Response, StreamingResponse
 from fastapi.staticfiles import StaticFiles
+from starlette.concurrency import run_in_threadpool
 
 from server.app.config import Settings, settings
-from server.app.auto_profile import AutoProfileClassifier
+from server.app.auto_profile import AutoProfileClassifier, SUPPORTED_FAMILIES, confirm_near_miss
 from server.app.db import Database
+from server.app.demo_auth import DemoAuthMiddleware
 from server.app.detector import _sha256
 from server.app.evidence import EvidenceStore
 from server.app.gate_service import GateService
 from server.app.hub import Hub
 from server.app.mes import OutboxWorker
+from server.app.m2_body import M2BodyClassifier
 from server.app.player import Pipeline
 from server.app.profiles import ProfileRegistry
+from server.app.risk_explanation import explain_flagged_risk
+from server.app.vlm_advisor import LocalVLM
 from server.app.schemas import (
     ControlRequest,
     DatasetReport,
@@ -74,7 +81,14 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     gate = GateService(settings)
     evidence = EvidenceStore(settings)
     pipeline = Pipeline(settings, registry, db, hub, evidence, gate)
+    report_marker = settings.artifacts_dir / "current_report.json"
+    try:
+        current_report = json.loads(report_marker.read_text(encoding="utf-8"))
+    except (OSError, ValueError):
+        current_report = None
     auto_profile = AutoProfileClassifier(settings.auto_profile_model)
+    m2_body = M2BodyClassifier(settings.m2_body_weights)
+    vlm = LocalVLM(settings)
     worker = OutboxWorker(settings, db)
     runtime.update(
         {
@@ -94,7 +108,11 @@ async def lifespan(app: FastAPI) -> AsyncIterator[None]:
     app.state.gate = gate
     app.state.evidence = evidence
     app.state.pipeline = pipeline
+    app.state.current_report = current_report
     app.state.auto_profile_classifier = auto_profile
+    app.state.m2_body_classifier = m2_body
+    app.state.vlm = vlm
+    app.state.vlm_cache = {}
     app.state.worker = worker
     _seed_models(settings, db, registry)
     pipeline.start()
@@ -190,6 +208,7 @@ app.add_middleware(
     allow_methods=["*"],
     allow_headers=["*"],
 )
+app.add_middleware(DemoAuthMiddleware)
 
 
 @app.get("/api/health", response_model=HealthInfo)
@@ -200,6 +219,8 @@ async def health(request: Request) -> HealthInfo:
     state = pipeline.state()
     warnings = list(state.get("warnings", []))
     warnings += _validation_checks(settings, get_registry(request))
+    db_counts = db.counts()
+    db_counts["current_open_reviews"] = len(_current_review_rows(request))
     return HealthInfo(
         status="ok" if pipeline._thread and pipeline._thread.is_alive() else "degraded",
         version=settings.version,
@@ -211,11 +232,65 @@ async def health(request: Request) -> HealthInfo:
         gate_ready=pipeline.gate.ready,
         gate_trusted=pipeline.profile.gate_trusted,
         device=state.get("device", "cpu"),
-        db=db.counts(),
+        db=db_counts,
         fps=round(hub.fps, 2),
         ws_clients=hub.ws_clients,
         warnings=sorted(set(warnings)),
     )
+
+
+@app.get("/api/m2-body/status")
+async def m2_body_status(request: Request) -> dict[str, Any]:
+    classifier: M2BodyClassifier = request.app.state.m2_body_classifier
+    report_path = classifier.weights.with_name("report.json")
+    metrics: dict[str, Any] | None = None
+    if report_path.is_file():
+        try:
+            report = json.loads(report_path.read_text(encoding="utf-8"))
+            metrics = {
+                "test_images": report["test_images"],
+                "test_auc": report["test_auc"],
+                "test_at_operating_threshold": report["test_at_operating_threshold"],
+            }
+        except (OSError, ValueError, KeyError, TypeError):
+            pass
+    return {
+        "available": classifier.available,
+        "task": "M2 screw Body OK/NG classification",
+        "scope": "Only 1024×1280 images from the M2 Body camera setup; no defect subtype or box",
+        "metrics": metrics,
+    }
+
+
+@app.put("/api/m2-body/classify")
+async def classify_m2_body(request: Request) -> dict[str, Any]:
+    """Classify a source-format M2 Body image without changing live inspection state."""
+    import cv2
+    import numpy as np
+
+    classifier: M2BodyClassifier = request.app.state.m2_body_classifier
+    if not classifier.available:
+        raise HTTPException(503, "M2 Body classifier checkpoint is unavailable on this server")
+    max_bytes = 20 * 1024 * 1024
+    content_length = request.headers.get("content-length")
+    if content_length:
+        try:
+            if int(content_length) > max_bytes:
+                raise HTTPException(413, "image exceeds the 20 MB limit")
+        except ValueError as exc:
+            raise HTTPException(400, "invalid Content-Length header") from exc
+    data = bytearray()
+    async for chunk in request.stream():
+        data.extend(chunk)
+        if len(data) > max_bytes:
+            raise HTTPException(413, "image exceeds the 20 MB limit")
+    image = cv2.imdecode(np.frombuffer(data, dtype=np.uint8), cv2.IMREAD_COLOR) if data else None
+    if image is None:
+        raise HTTPException(400, "image could not be decoded")
+    try:
+        return await run_in_threadpool(classifier.classify, image)
+    except ValueError as exc:
+        raise HTTPException(422, str(exc)) from exc
 
 
 @app.get("/api/profiles")
@@ -300,6 +375,30 @@ async def gate_summary(request: Request) -> dict[str, Any]:
 @app.get("/api/datasets/verify", response_model=DatasetReport)
 async def verify_datasets(request: Request, force: bool = False) -> dict[str, Any]:
     return get_registry(request).verify(force=force)
+
+
+@app.get("/api/datasets/unified")
+async def unified_dataset_summary(request: Request) -> dict[str, Any]:
+    """Present the prepared YOLO dataset separately from legacy source checks."""
+    manifest_path = settings.artifacts_dir / "datasets" / "unified_defects" / "manifest.json"
+    eval_path = settings.artifacts_dir / "eval" / "unified_yolo11s_640_test.json"
+    if not manifest_path.is_file():
+        return {"available": False, "active": False}
+    manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+    evaluation = json.loads(eval_path.read_text(encoding="utf-8")) if eval_path.is_file() else {}
+    pipeline = get_pipeline(request)
+    return {
+        "available": True,
+        "active": settings.detector_mode == "unified" and pipeline.detector.info().get("ready", False),
+        "engine": pipeline.detector.engine,
+        "class_count": manifest.get("class_count", 0),
+        "classes": list(manifest.get("classes", {}).values()),
+        "images": manifest.get("images", {}),
+        "by_profile": manifest.get("by_profile", {}),
+        "test_overall": evaluation.get("test_overall", {}),
+        "test_images": evaluation.get("test_images"),
+        "split_note": manifest.get("mvtec_defect_split_note", ""),
+    }
 
 
 @app.get("/api/eval/summary")
@@ -396,6 +495,7 @@ async def upload_demo_input(request: Request, filename: str = Query(..., min_len
     if suffix not in video_suffixes | image_suffixes:
         raise HTTPException(415, "unsupported file type; use JPG, PNG, BMP, WEBP, MP4, AVI, MOV, MKV, or M4V")
     source = "image" if suffix in image_suffixes else "video"
+    video_frame_count = 0
     if request.url.path == "/api/video" and source != "video":
         raise HTTPException(415, "the /api/video endpoint accepts video files only")
 
@@ -434,16 +534,84 @@ async def upload_demo_input(request: Request, filename: str = Query(..., min_len
         else:
             capture = cv2.VideoCapture(str(destination))
             readable = capture.isOpened()
+            video_frame_count = int(capture.get(cv2.CAP_PROP_FRAME_COUNT)) if readable else 0
             has_frame, first_frame = capture.read() if readable else (False, None)
             capture.release()
             if not readable or not has_frame:
                 raise HTTPException(400, "video has no decodable frames; try MP4 or AVI")
         identification = classifier.identify(first_frame)
+        if (
+            identification["status"] == "uncertain"
+            and identification.get("candidate") in SUPPORTED_FAMILIES
+            and 0.45 <= float(identification.get("confidence") or 0) < classifier.confidence_floor
+        ):
+            vlm: LocalVLM = request.app.state.vlm
+            if (await run_in_threadpool(vlm.status))["ready"]:
+                try:
+                    observation = await run_in_threadpool(vlm.identify_product, first_frame)
+                    identification = confirm_near_miss(identification, observation)
+                except (RuntimeError, ValueError):
+                    pass  # Preserve the uncertain result when the local VLM fails.
         if identification["status"] != "identified":
-            candidate = identification.get("candidate") or "none"
-            confidence = float(identification.get("confidence", 0.0))
-            raise HTTPException(422, detail=f"{identification['message']} Top candidate: {candidate} ({confidence:.0%}).")
+            # Product identity is a prerequisite for choosing a defect profile.
+            # Preserve the input and ask a person rather than guessing a family.
+            now_ms = int(time.time() * 1000)
+            inspection_id = "insp_" + uuid.uuid4().hex[:20]
+            db = get_db(request)
+            evidence = request.app.state.evidence.save(
+                inspection_id, first_frame, first_frame,
+                meta={
+                    "reason": "product_not_recognized",
+                    "identification": identification,
+                    "filename": safe_name,
+                    "source": source,
+                    "stored_upload": destination.name,
+                    "note": "First video frame only" if source == "video" else "Uploaded image",
+                },
+            )
+            db.create_inspection({
+                "id": inspection_id, "ts_ms": now_ms, "profile": "unrecognized",
+                "source": source, "status": "open", "verdict": "review",
+                "final_verdict": None, "severity": 2, "route": "human_review",
+                "reason": "product_not_recognized", "anomaly_z": 0.0,
+                "anomaly_raw": 0.0, "latency_total_ms": 0.0,
+                "frame_count": 1, "detections_json": [],
+                "model_version": "auto_profile_classifier",
+                "threshold_profile": db.active_threshold()["id"],
+            })
+            db.finalize_inspection(
+                {
+                    "id": inspection_id, "profile": "unrecognized",
+                    "final_verdict": "review", "severity": 2,
+                    "route": "human_review", "reason": "product_not_recognized",
+                    "frame_count": 1, "detections": [],
+                    "warnings": ["product_not_recognized", "defect_detection_not_run"],
+                },
+                [], evidence, [],
+            )
+            marker = {
+                "filename": safe_name, "source": source,
+                "profile": "unrecognized", "started_at_ms": now_ms,
+                "max_inspections": 1,
+                "inspection_id": inspection_id,
+            }
+            (settings.artifacts_dir / "current_report.json").write_text(
+                json.dumps(marker), encoding="utf-8"
+            )
+            request.app.state.current_report = marker
+            request.app.state.vlm_cache = {}
+            return {
+                "ok": True, "review_required": True,
+                "inspection_id": inspection_id, "filename": safe_name,
+                "bytes": written, "source": source,
+                "profile": "unrecognized", "reason": "product_not_recognized",
+                "auto_identification": identification,
+                "evidence_url": evidence["image_url"],
+                "message": "Product not recognized. Upload sent to manual review; defect detection was not run.",
+            }
         selected_profile = str(identification["profile"])
+        if selected_profile not in SUPPORTED_FAMILIES:
+            raise HTTPException(422, "Only steel, screw, metal nut, transistor, and bottle are supported")
         profile = get_registry(request).get(selected_profile)
         if (profile.detector or pipeline.settings.detector_mode == "unified") and (
             pipeline.settings.detector_mode not in {"real", "real-run", "unified"}
@@ -454,9 +622,17 @@ async def upload_demo_input(request: Request, filename: str = Query(..., min_len
             pipeline.settings.image_path = str(destination)
         else:
             pipeline.settings.video_path = str(destination)
+        pipeline.input_warning = str(identification.get("domain_warning") or "")
         pipeline.command("pause")
         pipeline.command("profile", selected_profile)
         pipeline.command("source", source)
+        max_inspections = 1 if source == "image" else (video_frame_count // max(1, settings.part_frames) if video_frame_count else None)
+        marker = {"filename": safe_name, "source": source, "profile": selected_profile, "started_at_ms": int(time.time() * 1000), "max_inspections": max_inspections}
+        if identification.get("domain_warning"):
+            marker["domain_warning"] = identification["domain_warning"]
+        (settings.artifacts_dir / "current_report.json").write_text(json.dumps(marker), encoding="utf-8")
+        request.app.state.current_report = marker
+        request.app.state.vlm_cache = {}
         state = pipeline.command("resume")
     except HTTPException:
         destination.unlink(missing_ok=True)
@@ -474,6 +650,179 @@ async def upload_demo_input(request: Request, filename: str = Query(..., min_len
 async def recent_frames(request: Request) -> dict[str, Any]:
     hub = get_hub(request)
     return {"frames": hub.recent[-60:], "fps": round(hub.fps, 2)}
+
+
+def _report_rows(request: Request) -> tuple[dict[str, Any], list[dict[str, Any]], bool]:
+    marker = request.app.state.current_report
+    if not marker:
+        raise HTTPException(404, "Upload an image or video to create an inspection report")
+    first_pass_count = marker.get("max_inspections")
+    if first_pass_count is None and marker["source"] == "image":
+        first_pass_count = 1
+    limit = min(2000, first_pass_count) if first_pass_count is not None else 2000
+    rows = get_db(request).list_closed_since(marker["started_at_ms"], marker["profile"], marker["source"], limit=limit + 1)
+    return marker, rows[:limit], len(rows) > 2000
+
+
+def _current_review_rows(request: Request) -> list[dict[str, Any]]:
+    if not request.app.state.current_report:
+        return []
+    _, rows, _ = _report_rows(request)
+    return [row for row in rows if (row.get("final_verdict") or row.get("verdict")) in {"review", "fail"}
+            and row.get("operator_disposition") is None]
+
+
+def _report_summary(marker: dict[str, Any], rows: list[dict[str, Any]], truncated: bool) -> dict[str, Any]:
+    classes: Counter[str] = Counter()
+    decisions: Counter[str] = Counter()
+    for row in rows:
+        decisions[row.get("final_verdict") or row.get("verdict") or "unknown"] += 1
+        for detection in row.get("detections") or []:
+            classes[detection.get("class") or detection.get("class_name") or "unknown"] += 1
+    flagged = [row for row in rows if (row.get("final_verdict") or row.get("verdict")) in {"review", "fail"} and row.get("detections")]
+    top_row = max(flagged, key=lambda row: (int(row.get("severity") or 1), len(row.get("detections") or []))) if flagged else None
+    return {
+        "filename": marker["filename"], "profile": marker["profile"], "source": marker["source"],
+        "domain_warning": marker.get("domain_warning"),
+        "risk": explain_flagged_risk(marker["profile"], top_row["detections"], top_row.get("final_verdict") or top_row.get("verdict")) if top_row else None,
+        "started_at_ms": marker["started_at_ms"], "inspections": len(rows),
+        "first_pass_only": marker.get("max_inspections") is not None,
+        "detections": sum(classes.values()), "counts_by_class": dict(classes),
+        "decisions": dict(decisions), "truncated": truncated,
+        "avg_processing_ms": round(sum(float(row.get("latency_total_ms") or 0) for row in rows) / len(rows), 1) if rows else 0,
+    }
+
+
+def _evidence_path(url: str | None) -> Path | None:
+    if not url or not url.startswith("/media/"):
+        return None
+    relative = url.removeprefix("/media/").removeprefix("evidence/")
+    root = settings.evidence_dir.resolve()
+    path = (root / relative).resolve()
+    try:
+        path.relative_to(root)
+    except ValueError:
+        return None
+    return path if path.is_file() else None
+
+
+def _report_csv(summary: dict[str, Any], rows: list[dict[str, Any]]) -> bytes:
+    buf = io.StringIO(newline="")
+    writer = csv.writer(buf)
+    writer.writerow(["filename", "profile", "source", "inspection_id", "timestamp_ms", "decision", "severity", "route", "class", "confidence", "class_total", "inspections_total", "detections_total", "pass_total", "review_total", "fail_total", "processing_ms", "source_image", "annotated_image", "crop_image", "potential_concern", "possible_later_failure", "time_to_failure", "needed_for_life_estimate"])
+    for row in rows or [{}]:
+        detections = row.get("detections") or [{}]
+        for detection in detections:
+            name = detection.get("class") or detection.get("class_name") or ""
+            risk = explain_flagged_risk(summary["profile"], [detection] if name else [], row.get("final_verdict") or row.get("verdict") or "") or {}
+            writer.writerow([
+                summary["filename"], summary["profile"], summary["source"], row.get("id", ""), row.get("ts_ms", ""),
+                row.get("final_verdict") or row.get("verdict") or "", row.get("severity", ""), row.get("route", ""),
+                name, detection.get("conf", ""), summary["counts_by_class"].get(name, 0),
+                summary["inspections"], summary["detections"], summary["decisions"].get("pass", 0),
+                summary["decisions"].get("review", 0), summary["decisions"].get("fail", 0),
+                row.get("latency_total_ms", ""),
+                ("/media/" + row["image_url"].removeprefix("/media/").removeprefix("evidence/")) if row.get("image_url") else "",
+                ("/media/" + row["overlay_url"].removeprefix("/media/").removeprefix("evidence/")) if row.get("overlay_url") else "",
+                ("/media/" + row["crop_url"].removeprefix("/media/").removeprefix("evidence/")) if row.get("crop_url") else "",
+                risk.get("immediate_concern", ""), risk.get("if_used", ""), risk.get("time_to_failure", ""), risk.get("needed_for_estimate", ""),
+            ])
+    return buf.getvalue().encode("utf-8-sig")
+
+
+@app.get("/api/report")
+async def inspection_report(request: Request) -> dict[str, Any]:
+    marker, rows, truncated = _report_rows(request)
+    return _report_summary(marker, rows, truncated)
+
+
+@app.get("/api/vlm/status")
+async def vlm_status(request: Request) -> dict[str, Any]:
+    return await run_in_threadpool(request.app.state.vlm.status)
+
+
+@app.post("/api/vlm/advice")
+async def vlm_advice(request: Request) -> dict[str, Any]:
+    marker, rows, _ = _report_rows(request)
+    if not rows:
+        raise HTTPException(409, "Wait for the first completed inspection before requesting VLM advice")
+    chosen = max(rows, key=lambda row: (row.get("severity") or 0, len(row.get("detections") or [])))
+    inspection_id = chosen["id"]
+    cached = request.app.state.vlm_cache.get(inspection_id)
+    if cached:
+        return cached
+    image = _evidence_path(chosen.get("image_url"))
+    if image is None:
+        raise HTTPException(404, "Inspection image evidence is unavailable")
+    vlm: LocalVLM = request.app.state.vlm
+    status = await run_in_threadpool(vlm.status)
+    if not status["ready"]:
+        raise HTTPException(503, f"{status['message']}: {status['model']}")
+    try:
+        result = await run_in_threadpool(vlm.advise, image, marker["profile"], chosen.get("detections") or [], inspection_id, bool(marker.get("domain_warning")))
+    except (RuntimeError, ValueError) as exc:
+        raise HTTPException(502, str(exc)) from exc
+    request.app.state.vlm_cache[inspection_id] = result
+    return result
+
+
+@app.get("/api/report.csv")
+async def inspection_report_csv(request: Request) -> Response:
+    marker, rows, truncated = _report_rows(request)
+    content = _report_csv(_report_summary(marker, rows, truncated), rows)
+    return Response(content=content, media_type="text/csv", headers={"Content-Disposition": "attachment; filename=indore-inspection-report.csv"})
+
+
+@app.get("/api/report.zip")
+async def inspection_report_zip(request: Request) -> Response:
+    marker, rows, truncated = _report_rows(request)
+    summary = _report_summary(marker, rows, truncated)
+    output = io.BytesIO()
+    with zipfile.ZipFile(output, "w", compression=zipfile.ZIP_DEFLATED) as archive:
+        archive.writestr("inspections.csv", _report_csv(summary, rows))
+        archive.writestr("summary.json", json.dumps(summary, indent=2))
+        for row in rows:
+            for key in ("image_url", "overlay_url", "crop_url", "heatmap_url"):
+                path = _evidence_path(row.get(key))
+                if path:
+                    archive.write(path, f"evidence/{path.name}")
+    return Response(content=output.getvalue(), media_type="application/zip", headers={"Content-Disposition": "attachment; filename=indore-inspection-report.zip"})
+
+
+DEMO_FAMILIES = ("steel", "metal_nut", "screw", "transistor", "bottle")
+
+
+def _demo_image_path(family: str, kind: str) -> Path:
+    if family not in DEMO_FAMILIES or kind not in {"defect", "clean"}:
+        raise HTTPException(404, "demo image not found")
+    root = settings.artifacts_dir / "demo_images"
+    candidates = sorted((root / "recommended").glob(f"{family}_*.jpg")) if kind == "defect" else sorted((root / family).glob("clean--*.jpg"))
+    if not candidates:
+        raise HTTPException(404, "demo image not found")
+    return candidates[0]
+
+
+@app.get("/api/demo/catalog")
+async def demo_catalog() -> dict[str, Any]:
+    items = []
+    for family in DEMO_FAMILIES:
+        try:
+            defect = _demo_image_path(family, "defect")
+            clean = _demo_image_path(family, "clean")
+        except HTTPException:
+            continue
+        items.append({
+            "family": family, "defect_label": defect.stem.removeprefix(family + "_").replace("_", " "),
+            "defect_url": f"/api/demo/image/{family}/defect",
+            "clean_url": f"/api/demo/image/{family}/clean",
+            "defect_filename": defect.name, "clean_filename": clean.name,
+        })
+    return {"items": items, "note": "Curated held-out examples for demonstration, not an unbiased accuracy estimate."}
+
+
+@app.get("/api/demo/image/{family}/{kind}")
+async def demo_image(family: str, kind: str) -> FileResponse:
+    return FileResponse(_demo_image_path(family, kind), media_type="image/jpeg")
 
 
 @app.get("/live.mjpg")
@@ -585,21 +934,24 @@ async def inspection_detail(inspection_id: str, request: Request) -> dict[str, A
 
 
 @app.get("/api/review/queue")
-async def review_queue(request: Request, limit: int = Query(100, ge=1, le=500)) -> dict[str, Any]:
+async def review_queue(request: Request, limit: int = Query(100, ge=1, le=500), scope: Literal["current", "all"] = "current") -> dict[str, Any]:
     db = get_db(request)
-    rows = db.review_queue(limit)
+    rows = _current_review_rows(request) if scope == "current" else db.review_queue(limit)
     counts = db.counts()
     return {
-        "items": [_public_inspection(r) for r in rows],
-        "count": len(rows),
-        "open_reviews": counts["open_reviews"],
+        "items": [_public_inspection(r) for r in rows[:limit]],
+        "count": min(len(rows), limit),
+        "open_reviews": len(rows) if scope == "current" else counts["open_reviews"],
+        "historical_open_reviews": counts["open_reviews"],
+        "scope": scope,
     }
 
 
 @app.post("/api/inspections/{inspection_id}/review")
 async def review_inspection(inspection_id: str, body: ReviewAction, request: Request) -> dict[str, Any]:
     db = get_db(request)
-    actor = body.actor or settings.actor
+    session_user = getattr(request.state, "auth_user", None)
+    actor = session_user["username"] if session_user else (body.actor or settings.actor)
     row = db.review(inspection_id, body.model_dump(exclude_none=True), actor)
     if row is None:
         raise HTTPException(404, "inspection not found")

@@ -14,13 +14,15 @@ import numpy as np
 
 from server.app.config import Settings
 from server.app.db import Database
-from server.app.detector import Box, NullDetector, build_detector
+from server.app.detector import Box, NullDetector, YoloDetector, build_detector
 from server.app.evidence import EvidenceStore
 from server.app.fusion import PartAccumulator, detection_severity
+from server.app.demo_routing import simulated_plc_action
 from server.app.gate_service import GateService
 from server.app.hub import Hub
 from server.app.overlay import encode_jpeg, render
 from server.app.profiles import Item, Profile, ProfileRegistry
+from server.app.risk_explanation import explain_flagged_risk
 from server.app.schemas import (
     AnomalyInfo,
     AnomalyRegionOut,
@@ -78,6 +80,9 @@ class DatasetSequence:
     def current(self) -> Item:
         return self.items[self.index]
 
+    def current_profile(self) -> Profile:
+        return self.profile
+
     def advance(self) -> None:
         self.index += 1
         if self.index >= len(self.items):
@@ -87,6 +92,53 @@ class DatasetSequence:
     @property
     def total(self) -> int:
         return len(self.items)
+
+
+class ProductBlockSequence:
+    """Replay ten dataset images per product before moving to the next family."""
+
+    def __init__(self, profiles: list[Profile], mode: str = "mixed", seed: int = 42) -> None:
+        streams: list[tuple[Profile, list[Item]]] = []
+        for profile in profiles:
+            if mode == "mixed":
+                defects = DatasetSequence._shuffle(profile.defect or profile.unknown, profile, "defect", seed)
+                good = DatasetSequence._shuffle(profile.good, profile, "good", seed)
+                if defects and good:
+                    items = []
+                    for i in range(10):
+                        bank = defects if i % 2 == 0 else good
+                        items.append(bank[(i // 2) % len(bank)])
+                else:
+                    items = defects or good
+            else:
+                items = DatasetSequence(profile, mode, seed).items
+            if items:
+                streams.append((profile, items))
+        if not streams:
+            raise RuntimeError("no product datasets available for replay")
+        self.entries = [
+            (profile, items[i % len(items)])
+            for profile, items in streams
+            for i in range(10)
+        ]
+        self.index = 0
+        self.cycle = 0
+
+    def current(self) -> Item:
+        return self.entries[self.index][1]
+
+    def current_profile(self) -> Profile:
+        return self.entries[self.index][0]
+
+    def advance(self) -> None:
+        self.index += 1
+        if self.index >= len(self.entries):
+            self.index = 0
+            self.cycle += 1
+
+    @property
+    def total(self) -> int:
+        return len(self.entries)
 
 
 @dataclass
@@ -102,6 +154,7 @@ class PartContext:
     accumulator: PartAccumulator
     started_ms: int
     latencies: list[float]
+    persist: bool = True
     last_anomaly: Any = None
 
 
@@ -124,7 +177,7 @@ class Pipeline:
 
         self.profile: Profile = registry.get(settings.profile)
         self.sequence_mode = settings.sequence
-        self.sequence = DatasetSequence(self.profile, self.sequence_mode)
+        self.sequence = self._new_dataset_sequence()
         self.detector = build_detector(settings, self.profile)
 
         self._stop = threading.Event()
@@ -139,6 +192,7 @@ class Pipeline:
 
         self.source = settings.source
         self.source_warning = ""
+        self.input_warning = ""
         self.capture: cv2.VideoCapture | None = None
         self.capture_fallbacks = 0
         self.warnings: list[str] = []
@@ -149,6 +203,8 @@ class Pipeline:
         self.frame_in_part = 0
         self._current_image: np.ndarray | None = None
         self._image_path: str | None = None
+        self._recorded_image_path: str | None = None
+        self._video_completed_once = False
         self._last_gate = None
         self._last_gate_ms = 0.0
         self._last_gate_warning = ""
@@ -168,7 +224,7 @@ class Pipeline:
         self._stop.set()
         if self._thread:
             self._thread.join(timeout=5.0)
-        if self.part:
+        if self.part and self.part.persist:
             self.db.abandon_inspection(self.part.inspection_id, "server_stop")
         if self.capture is not None:
             self.capture.release()
@@ -225,7 +281,10 @@ class Pipeline:
             ),
             "sequence_total": self.sequence.total if self.source == "dataset" else 0,
             "uptime_s": round(time.time() - self.started_at, 1),
-            "warnings": sorted(set(self.warnings + [self.source_warning])) if self.source_warning else sorted(set(self.warnings)),
+            "warnings": sorted(set(self.warnings + [warning for warning in (
+                self.source_warning,
+                self.input_warning if self.source in {"image", "video"} else "",
+            ) if warning])),
         }
 
     def _pending(self) -> bool:
@@ -245,8 +304,9 @@ class Pipeline:
             src = self._pending_source
             det = self._pending_detector
             self._pending_profile = self._pending_sequence = self._pending_source = self._pending_detector = None
-        if self.part:
+        if self.part and self.part.persist:
             self.db.abandon_inspection(self.part.inspection_id, "operator_reconfigure")
+        if self.part:
             self.part = None
             self.frame_in_part = 0
         if pid and pid != self.profile.id:
@@ -255,22 +315,25 @@ class Pipeline:
             self.detector = build_detector(self.settings, self.profile)
             self.gate.ensure(self.profile)
             self._last_gate = None
-            self.sequence = DatasetSequence(self.profile, self.sequence_mode)
+            self.sequence = self._new_dataset_sequence()
             self._reset_capture()
             self.db.audit_event(self.settings.actor, "profile.change", "profile", pid, {})
         if seq and seq in {"mixed", "good", "defect", "unknown"}:
             self.sequence_mode = seq
             self.settings.sequence = seq
-            self.sequence = DatasetSequence(self.profile, seq)
+            self.sequence = self._new_dataset_sequence()
             self.db.audit_event(self.settings.actor, "sequence.change", "pipeline", None, {"sequence": seq})
         if src and src in {"dataset", "camera", "video", "image"}:
             self.source = src
             self.settings.source = src
+            if src == "video":
+                self._video_completed_once = False
             self._reset_capture()
             self.db.audit_event(self.settings.actor, "source.change", "pipeline", None, {"source": src})
-        if det and det in {"auto", "real", "real-run", "fixture", "off"}:
+        if det and det in {"auto", "real", "real-run", "unified", "fixture", "off"}:
             self.settings.detector_mode = det
             self.detector = build_detector(self.settings, self.profile)
+            self.sequence = self._new_dataset_sequence()
             self.db.audit_event(self.settings.actor, "detector.change", "pipeline", None, {"mode": det})
 
     def _reset_capture(self) -> None:
@@ -278,6 +341,25 @@ class Pipeline:
             self.capture.release()
             self.capture = None
         self.source_warning = ""
+
+    def _new_dataset_sequence(self) -> DatasetSequence | ProductBlockSequence:
+        if self.settings.detector_mode == "unified":
+            families = ("steel", "metal_nut", "screw", "transistor", "bottle")
+            profiles = [self.registry.get(family) for family in families]
+            return ProductBlockSequence(profiles, self.sequence_mode)
+        return DatasetSequence(self.profile, self.sequence_mode)
+
+    def _activate_replay_profile(self, profile: Profile) -> None:
+        if profile.id == self.profile.id:
+            return
+        self.profile = profile
+        self.settings.profile = profile.id
+        if isinstance(self.detector, YoloDetector) and self.settings.detector_mode == "unified":
+            self.detector.set_profile(profile)
+        else:
+            self.detector = build_detector(self.settings, profile)
+        self.gate.ensure(profile)
+        self._last_gate = None
 
     # -------------------------------------------------------------- loop helpers
     def _run(self) -> None:
@@ -291,7 +373,7 @@ class Pipeline:
                     self._apply_pending()
                 if self._skip.is_set():
                     self._skip.clear()
-                    if self.part:
+                    if self.part and self.part.persist:
                         self.db.abandon_inspection(self.part.inspection_id, "operator_skip", self.settings.actor)
                     self.part = None
                     self.frame_in_part = 0
@@ -315,6 +397,7 @@ class Pipeline:
     def _run_dataset_frame(self) -> None:
         item = self.sequence.current()
         if self.part is None:
+            self._activate_replay_profile(self.sequence.current_profile())
             frame = self._load_image(item.path)
             if frame is None:
                 self.sequence.advance()
@@ -323,13 +406,15 @@ class Pipeline:
             self._start_part(item, frame, self.settings.part_frames)
         elif self.part.item is not None and self.part.item.path != item.path:
             # Defensive: item changed without a completed part.
-            self.db.abandon_inspection(self.part.inspection_id, "sequence_desync")
+            if self.part.persist:
+                self.db.abandon_inspection(self.part.inspection_id, "sequence_desync")
             self.part = None
             return
 
         frame = self._load_image(item.path)
         if frame is None:
-            self.db.abandon_inspection(self.part.inspection_id, "missing_frame")
+            if self.part.persist:
+                self.db.abandon_inspection(self.part.inspection_id, "missing_frame")
             self.part = None
             self.frame_in_part = 0
             self.sequence.advance()
@@ -355,6 +440,8 @@ class Pipeline:
         final = self.frame_in_part >= self.part.frames_total
         self._process(frame, None, self.frame_in_part, self.part.frames_total, final)
         if final:
+            if self.part.persist:
+                self._recorded_image_path = self.settings.image_path
             self.part = None
             self.frame_in_part = 0
 
@@ -371,7 +458,8 @@ class Pipeline:
                     self.capture_fallbacks = 0
                     ok, frame = self.capture.read()
                     if ok and frame is not None:
-                        if self.part:
+                        self._video_completed_once = True
+                        if self.part and self.part.persist:
                             self.db.abandon_inspection(self.part.inspection_id, "video_loop")
                         self.part = None
                         self.frame_in_part = 0
@@ -422,6 +510,8 @@ class Pipeline:
         self.source_warning = "source_fallback_dataset_replay"
         self.warnings.append(self.source_warning)
         self.db.audit_event("system", "source.fallback", "pipeline", None, {"reason": self.source_warning})
+        if self.part and self.part.persist:
+            self.db.abandon_inspection(self.part.inspection_id, "source_fallback")
         self.part = None
         self.frame_in_part = 0
 
@@ -433,29 +523,35 @@ class Pipeline:
         kind = item.kind if item else "live"
         gt_class = item.class_name if item else None
         gt_kind = item.kind if item else None
-        self.db.create_inspection(
-            {
-                "id": inspection_id,
-                "ts_ms": int(time.time() * 1000),
-                "profile": self.profile.id,
-                "source": self.source,
-                "status": "open",
-                "verdict": "pass",
-                "final_verdict": None,
-                "severity": 1,
-                "route": None,
-                "reason": None,
-                "anomaly_z": 0.0,
-                "anomaly_raw": 0.0,
-                "latency_total_ms": 0.0,
-                "frame_count": 0,
-                "detections_json": [],
-                "ground_truth_kind": gt_kind,
-                "ground_truth_class": gt_class,
-                "model_version": self._model_version(),
-                "threshold_profile": thresholds["id"],
-            }
+        persist = (
+            self.source == "camera"
+            or (self.source == "image" and self.settings.image_path != self._recorded_image_path)
+            or (self.source == "video" and not self._video_completed_once)
         )
+        if persist:
+            self.db.create_inspection(
+                {
+                    "id": inspection_id,
+                    "ts_ms": int(time.time() * 1000),
+                    "profile": self.profile.id,
+                    "source": self.source,
+                    "status": "open",
+                    "verdict": "pass",
+                    "final_verdict": None,
+                    "severity": 1,
+                    "route": None,
+                    "reason": None,
+                    "anomaly_z": 0.0,
+                    "anomaly_raw": 0.0,
+                    "latency_total_ms": 0.0,
+                    "frame_count": 0,
+                    "detections_json": [],
+                    "ground_truth_kind": gt_kind,
+                    "ground_truth_class": gt_class,
+                    "model_version": self._model_version(),
+                    "threshold_profile": thresholds["id"],
+                }
+            )
         self.part = PartContext(
             inspection_id=inspection_id,
             index=self.part_counter,
@@ -468,6 +564,7 @@ class Pipeline:
             accumulator=PartAccumulator(h * w),
             started_ms=int(time.time() * 1000),
             latencies=[],
+            persist=persist,
             last_anomaly=None,
         )
 
@@ -486,6 +583,8 @@ class Pipeline:
         self.part.frame_in_part = frame_in_part
         thresholds = self.db.active_threshold()
         warnings = list(self.warnings)
+        if self.source in {"image", "video"} and self.input_warning:
+            warnings.append(self.input_warning)
 
         # Detector
         t_det = time.perf_counter()
@@ -550,6 +649,11 @@ class Pipeline:
             warnings=warnings,
         )
         decision = self.part.accumulator.finalize(self.profile, thresholds)
+        if self.source in {"image", "video"} and self.input_warning and decision.verdict == "pass":
+            decision.verdict = "review"
+            decision.route = "human_review"
+            decision.reason = "product_appearance_outside_training_domain"
+            decision.severity = max(decision.severity, 2)
         warnings = decision.warnings
 
         # Overlay
@@ -634,6 +738,8 @@ class Pipeline:
             verdict=decision.verdict,  # type: ignore[arg-type]
             routing=decision.routing(),
             severity=decision.severity,
+            simulated_plc=simulated_plc_action(decision.detections, decision.verdict, decision.severity),
+            risk=explain_flagged_risk(self.profile.id, [d.model_dump(by_alias=True) for d in decision.detections], decision.verdict),
             part_state=PartState(
                 index=(
                     ((self.part.index - 1) % self.sequence.total) + 1
@@ -657,7 +763,7 @@ class Pipeline:
         # still stored; REVIEW/FAIL get the same stills plus heatmap/crop.
         # Evidence stills keep the full burned-in provenance HUD so a still opened
         # outside the app can never be mistaken for a live camera capture.
-        if final:
+        if final and self.part.persist:
             evidence_frame = render(
                 frame,
                 decision.detections,

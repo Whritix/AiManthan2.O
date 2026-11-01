@@ -101,7 +101,7 @@ class EvidenceStore:
         )
 
         rel = f"{day}/{inspection_id}"
-        url_root = f"/media/evidence/{rel}"
+        url_root = f"/media/{rel}"
         return {
             "image_url": f"{url_root}_source.jpg",
             "overlay_url": f"{url_root}_overlay.jpg",

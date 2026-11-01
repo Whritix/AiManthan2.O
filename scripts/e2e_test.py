@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""End-to-End integration test for Indore QA Cell API and Pipeline."""
+"""End-to-end API test. Requires real weights and an isolated artifacts dir."""
 from __future__ import annotations
 
 import hashlib
@@ -29,6 +29,10 @@ def assert_status(resp, code=200):
 
 
 def main():
+    if settings.artifacts_dir.resolve() == (ROOT / "artifacts").resolve():
+        raise SystemExit("Set INDORE_ARTIFACTS_DIR to an isolated test directory before running E2E")
+    if settings.detector_mode not in {"real", "unified"}:
+        raise SystemExit("Set INDORE_DETECTOR=real or unified so E2E uses actual YOLO inference")
     print("================================================================")
     print("      INDORE QA CELL - END-TO-END WORKFLOW INTEGRATION TEST     ")
     print("================================================================")
@@ -91,18 +95,33 @@ def main():
         assert updated_th["review_max"] == 0.72
         print(f"  Updated thresholds: pass_max={updated_th['pass_max']}, review_max={updated_th['review_max']}")
 
-        # Restore
-        client.patch("/api/thresholds", json={"pass_max": 0.55, "review_max": 0.75})
+        # Restore the actual starting values, including on customized demo setups.
+        client.patch("/api/thresholds", json={"pass_max": current_th["pass_max"], "review_max": current_th["review_max"]})
 
-        # 5. Let pipeline produce closed inspections
-        log_step("5. Waiting for pipeline inspections to commit")
-        time.sleep(2.5)
-
-        r = client.get("/api/inspections?limit=20&status=all")
+        # 5. Upload a real image: dataset replay deliberately does not persist
+        # inspections, so it cannot verify the inspection/review workflow.
+        log_step("5. Uploading demo image and waiting for a closed inspection")
+        sample = ROOT / "artifacts" / "demo_images" / "recommended" / "steel_patches.jpg"
+        assert sample.is_file(), f"missing integration sample: {sample}"
+        upload_started_ms = int(time.time() * 1000)
+        r = client.put("/api/input?filename=steel_patches.jpg", content=sample.read_bytes(),
+                       headers={"Content-Type": "image/jpeg"})
         assert_status(r, 200)
-        inspections = r.json()
-        items = inspections.get("items", [])
-        print(f"  Recorded inspections count: {len(items)}")
+        assert r.json()["profile"] == "steel"
+        deadline = time.monotonic() + 45
+        items = []
+        while time.monotonic() < deadline:
+            r = client.get("/api/inspections?limit=20&status=all")
+            assert_status(r, 200)
+            items = [item for item in r.json().get("items", [])
+                     if item.get("source") == "image" and item.get("status") == "closed"
+                     and int(item.get("ts_ms") or 0) >= upload_started_ms]
+            if items:
+                break
+            time.sleep(0.5)
+        assert items, "uploaded image never produced a closed inspection"
+        assert items[0]["verdict"] in {"fail", "review"}, items[0]
+        print(f"  Closed image inspections: {len(items)}; verdict={items[0]['verdict']}")
 
         # 6. Review Queue & Disposition
         log_step("6. Testing /api/review/queue & operator review disposition")
@@ -113,17 +132,14 @@ def main():
         print(f"  Review queue pending items: {len(q_items)}")
 
         # If review queue has items or if we pick any existing inspection to review
-        target_id = None
-        if q_items:
-            target_id = q_items[0]["id"]
-        elif items:
-            target_id = items[0]["id"]
+        target_id = items[0]["id"]
+        assert any(row["id"] == target_id for row in q_items), "new flagged inspection absent from review queue"
 
         if target_id:
             print(f"  Testing operator review on inspection: {target_id}")
             rev_action = {
                 "disposition": "true_defect",
-                "label": "scratches",
+                "label": "patches",
                 "note": "E2E automated verification test",
                 "actor": "qa_lead_automation",
             }
@@ -131,8 +147,10 @@ def main():
             assert_status(r, 200)
             rev_result = r.json()
             assert rev_result["operator_disposition"] == "true_defect"
-            assert rev_result["operator_label"] == "scratches"
+            assert rev_result["operator_label"] == "patches"
             print("  Inspection review disposition successfully recorded.")
+        else:
+            raise AssertionError("no persisted inspection available for review")
 
         # 7. Audit log verification
         log_step("7. Verifying /api/audit")

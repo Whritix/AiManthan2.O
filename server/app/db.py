@@ -359,6 +359,16 @@ class Database:
             r["detections"] = r.pop("detections_json", []) or []
         return rows
 
+    def list_closed_since(self, ts_ms: int, profile: str, source: str, limit: int = 2001) -> list[dict[str, Any]]:
+        with self.lock:
+            rows = self._rows(self.conn.execute(
+                "SELECT * FROM inspections WHERE ts_ms >= ? AND profile = ? AND source = ? AND status = 'closed' ORDER BY ts_ms ASC LIMIT ?",
+                (ts_ms, profile, source, limit),
+            ).fetchall())
+        for row in rows:
+            row["detections"] = row.pop("detections_json", []) or []
+        return rows
+
     def inspection_count(
         self,
         verdict: str | None = None,

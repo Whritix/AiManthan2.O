@@ -53,6 +53,8 @@ class Settings:
     camera_index: int = field(default_factory=lambda: _env_int("INDORE_CAMERA_INDEX", 0))
     video_path: str = field(default_factory=lambda: _env("INDORE_VIDEO_PATH", ""))
     image_path: str = field(default_factory=lambda: _env("INDORE_IMAGE_PATH", ""))
+    vlm_url: str = field(default_factory=lambda: _env("INDORE_VLM_URL", "http://127.0.0.1:11434"))
+    vlm_model: str = field(default_factory=lambda: _env("INDORE_VLM_MODEL", "qwen2.5vl:3b"))
     max_evidence: int = field(default_factory=lambda: _env_int("INDORE_MAX_EVIDENCE", 0))
     version: str = "1.0.0"
 
@@ -112,6 +114,11 @@ class Settings:
     def unified_weights(self) -> Path:
         """Candidate 21-class checkpoint trained from the combined dataset."""
         return self.artifacts_dir / "runs" / "unified_yolo11s_640" / "weights" / "best.pt"
+
+    @property
+    def m2_body_weights(self) -> Path:
+        """Optional binary model for the source M2 screw Body camera setup."""
+        return Path(_env("INDORE_M2_BODY_WEIGHTS", str(self.artifacts_dir / "runs" / "m2_body_resnet18_v1" / "best.pt")))
 
     @property
     def detector_weights(self) -> Path | None:

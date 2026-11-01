@@ -8,6 +8,21 @@ Built and benchmarked for an RTX 4060 Laptop (8 GB VRAM) / 32 GB RAM / Windows w
 
 ## 1. Quickstart
 
+### Role-based sign in
+The console now has two accounts. **Employees** can upload and inspect images/videos, view metrics, and disposition items in the review queue. **Admins** can do those tasks and also manage the detector controls, thresholds, datasets, model information, and audit log. The API enforces these permissions; hiding the admin navigation is only a usability aid.
+
+For a local-only run, the demo accounts are `admin` / `admin123` and `employee` / `employee123`. The server prints a warning when these fallback accounts are active. Before exposing the server to another device, set unique credentials and a stable signing secret in the environment:
+
+```powershell
+$env:INDORE_ADMIN_USERNAME = "qa-admin"
+$env:INDORE_ADMIN_PASSWORD = "<strong unique password>"
+$env:INDORE_EMPLOYEE_USERNAME = "qa-employee"
+$env:INDORE_EMPLOYEE_PASSWORD = "<strong unique password>"
+$env:INDORE_AUTH_SECRET = (python -c "import secrets; print(secrets.token_urlsafe(48))")
+```
+
+On Render, configure all five variables in the service environment. `INDORE_AUTH_SECRET` should be a long random value; Render's generated value in `render.yaml` can provide it. Sessions use an HTTP-only, SameSite cookie and expire after eight hours. Changing credentials or the signing secret invalidates existing sessions.
+
 ### Option A: One-Click Launch (Windows)
 Double-click `DEMO.bat` or run in terminal:
 ```bat
@@ -26,6 +41,8 @@ Use the strict launcher with a local image or video:
 # Or: .\scripts\demo_input.ps1 -InputPath "C:\path\to\defect.jpg"
 ```
 It requires promoted YOLO weights, preloads the model before startup, selects the input type, and uses strict real-detector mode so a fixture cannot silently replace YOLO. The previous `demo_video.ps1 -VideoPath` command remains available. The Live page also accepts an image or video. Uploaded images are inspected repeatedly in the live view; video clips play in a loop. The trained detector draws overlays. Image uploads are limited to 20 MB; video uploads to 500 MB.
+
+If automatic product identification is uncertain, the upload is saved as a **manual REVIEW** case with image evidence (the first frame for video). The review queue records a human product label or `unsupported`; the app does not run defect detection or assign a PASS/FAIL verdict for that upload.
 
 ### Option C: Manual CLI
 ```bash
