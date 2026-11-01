@@ -80,8 +80,8 @@ export default function Layout() {
         <div className="brand">
           <BrandMark />
           <div className="brand-text">
-            <strong>INDORE</strong>
-            <span>QA CELL · v{health?.version ?? "1.0.0"}</span>
+            <strong>INSPECTRA</strong>
+            <span>QUALITY SYSTEMS · v{health?.version ?? "1.0.0"}</span>
           </div>
         </div>
 
@@ -208,7 +208,7 @@ export default function Layout() {
         </main>
 
         <footer className="app-foot">
-          <span>INDORE QA CELL · LOCAL-FIRST INSPECTION DEMO</span>
+          <span>INSPECTRA · LOCAL-FIRST INSPECTION DEMO</span>
           <span>
             NEU-DET (CC BY 4.0) · MVTec AD (CC BY-NC-SA 4.0, non-commercial) · Built for research evaluation
           </span>

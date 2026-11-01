@@ -1,4 +1,4 @@
-# Indore QA Cell — Complete Project Transfer Guide
+# Inspectra — Complete Project Transfer Guide
 
 **Purpose:** Give the next laptop's developer enough context to install, run, demo, evaluate, and continue this project without relying on the original computer. This document is paired with the source tree; it is not a replacement for model weights or datasets.
 
@@ -121,7 +121,7 @@ Copy the complete project directory, retaining this layout. Use an external driv
 Suggested zip from the project parent (review exclusions before use):
 
 ```powershell
-Compress-Archive -Path .\Indore\* -DestinationPath .\Indore-project.zip
+Compress-Archive -Path .\Indore\* -DestinationPath .\Inspectra-project.zip
 ```
 
 This includes generated outputs too. For a smaller package, exclude `.venv`, `web/node_modules`, cache folders, and optionally training runs/evidence/SQLite while retaining `artifacts/models` and required data.

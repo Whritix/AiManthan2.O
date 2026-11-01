@@ -1,6 +1,6 @@
 <#
 .SYNOPSIS
-    Indore QA Cell - One-Command Demo Launcher (PowerShell)
+    Inspectra - One-Command Demo Launcher (PowerShell)
 .DESCRIPTION
     Launches the real-time surface inspection pipeline and web UI.
     Defaults to profile=steel, source=dataset, detector=auto.
@@ -21,7 +21,7 @@ Set-Location $ProjectRoot
 
 Write-Host ""
 Write-Host " ===============================================================" -ForegroundColor Cyan
-Write-Host "           INDORE QA CELL - Real-Time Defect Detection           " -ForegroundColor Cyan
+Write-Host "           INSPECTRA - Real-Time Defect Detection           " -ForegroundColor Cyan
 Write-Host "     YOLO11s + PatchCore-lite + Novelty Gate + Fusion Policy     " -ForegroundColor Cyan
 Write-Host " ===============================================================" -ForegroundColor Cyan
 Write-Host ""

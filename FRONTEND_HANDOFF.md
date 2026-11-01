@@ -1,4 +1,4 @@
-# Frontend Handoff — Indore QA Cell
+# Frontend Handoff — Inspectra
 
 This is the handoff for building or continuing the frontend on another computer. It describes the current server API, selected frontend files, how to run them together, and current backend caveats. The live OpenAPI document at `/openapi.json` and Swagger UI at `/docs` are the authoritative API contracts if code changes later.
 

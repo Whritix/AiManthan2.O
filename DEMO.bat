@@ -1,10 +1,10 @@
 @echo off
 setlocal enabledelayedexpansion
-title INDORE QA CELL — DEMO LAUNCHER
+title INSPECTRA — DEMO LAUNCHER
 
 echo.
 echo  ╔═══════════════════════════════════════════════════════════════╗
-echo  ║         INDORE QA CELL — Real-Time Defect Detection          ║
+echo  ║         INSPECTRA — Real-Time Defect Detection          ║
 echo  ║    YOLO11s + PatchCore-lite + Novelty Gate + Fusion          ║
 echo  ╚═══════════════════════════════════════════════════════════════╝
 echo.
@@ -59,7 +59,7 @@ echo   UI       : http://127.0.0.1:8000  (served from /dist)
 echo.
 
 :: ── launch ────────────────────────────────────────────────────────────────
-echo [5/5] Starting Indore QA Cell server...
+echo [5/5] Starting Inspectra server...
 echo.
 echo  ┌─────────────────────────────────────────────────────────────┐
 echo  │  READY:  http://127.0.0.1:8000                             │

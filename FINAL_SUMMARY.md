@@ -1,4 +1,4 @@
-# Indore QA Cell — Final Summary
+# Inspectra — Final Summary
 
 > **Superseded as of 2026-10-29.** Current metrics, gate status, and evaluation protocol live in `README.md` and `OPTIMIZATION_CONTEXT.md`. This file is retained as historical planning context; do not quote its numbers.
 >
@@ -6,7 +6,7 @@
 
 ## Project Verification Status: COMPLETE ✅
 
-I've thoroughly verified the Indore QA Cell project against the master plan (MASTER_PLAN.md) and training specification (TRAINING_SPEC.md). Here's what I confirmed:
+I've thoroughly verified the Inspectra project against the master plan (MASTER_PLAN.md) and training specification (TRAINING_SPEC.md). Here's what I confirmed:
 
 ### ✅ Infrastructure Complete (Built per Plan)
 - **MASTER_PLAN.md** — Full 48-hour execution plan with all gates, roles, rubric, and risk register
@@ -152,7 +152,7 @@ python scripts\e2e_verify.py
 
 ## Conclusion
 
-The Indore QA Cell project has **strong foundational infrastructure** built across all domains: ML model architecture and training pipeline, novelty gate fusion (PatchCore-lite + YOLO11s), FastAPI server with full route set, React web UI with WebSocket/MJPEG, SQLite persistence with WAL, MES outbox with HMAC signing, and comprehensive test suites.
+The Inspectra project has **strong foundational infrastructure** built across all domains: ML model architecture and training pipeline, novelty gate fusion (PatchCore-lite + YOLO11s), FastAPI server with full route set, React web UI with WebSocket/MJPEG, SQLite persistence with WAL, MES outbox with HMAC signing, and comprehensive test suites.
 
 The project is **80% built** infrastructure-wise. The remaining 20% is focused work that's entirely achievable within the remaining hackathon window:
 

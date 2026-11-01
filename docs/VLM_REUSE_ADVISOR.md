@@ -8,7 +8,7 @@ The three labels are **Reuse candidate**, **Inspect or repair**, and **Recycle c
 
 1. Install [Ollama for Windows](https://ollama.com/download/windows).
 2. Run `ollama pull qwen2.5vl:3b` and make sure the local service is running on `http://127.0.0.1:11434`.
-3. Start the Indore API with the unified detector and upload one of the five supported products.
+3. Start the Inspectra API with the unified detector and upload one of the five supported products.
 4. After the first completed inspection, use **Analyze completed inspection** on Live inspection.
 
 The backend uses Ollama's image and JSON-schema chat API. `INDORE_VLM_URL` and `INDORE_VLM_MODEL` can override the local service URL and model name. The VLM runs only when requested on a completed evidence image; the live YOLO stream does not wait for it. The API caches the response for that inspection until a new upload.

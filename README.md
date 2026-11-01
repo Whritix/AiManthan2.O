@@ -1,4 +1,4 @@
-# Real-Time AI Quality Assurance & Defect Detection — Indore QA Cell
+# Real-Time AI Quality Assurance & Defect Detection — Inspectra
 
 An industrial single-camera surface inspection cell that detects and classifies manufacturing defects live, returns **PASS / REVIEW / FAIL** verdicts, and escalates **unseen defect types to human review instead of force-classifying them** on profiles whose novelty gate is trusted (currently `bottle`, `metal_nut`, and `transistor`; the steel gate is not validated and does not gate).
 

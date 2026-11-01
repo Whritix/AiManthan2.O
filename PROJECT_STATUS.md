@@ -1,9 +1,9 @@
-# Indore QA Cell — Project Status Summary
+# Inspectra — Project Status Summary
 
 > **Superseded as of 2026-10-29.** Current metrics, gate status, and evaluation protocol live in `README.md` and `OPTIMIZATION_CONTEXT.md`. This file is retained as historical planning context; do not quote its numbers.
 
 ## Executive Summary
-The Indore QA Cell is a **fully architected AI-powered industrial quality assurance system** with most core infrastructure built. The project follows the master plan for a 48-hour hackathon, with the architecture designed around **YOLO11s + PatchCore-lite novelty gate fusion**.
+Inspectra is a **fully architected AI-powered industrial quality assurance system** with most core infrastructure built. The project follows the master plan for a 48-hour hackathon, with the architecture designed around **YOLO11s + PatchCore-lite novelty gate fusion**.
 
 ## What's Built ✅
 
@@ -237,7 +237,7 @@ Expected: All 11 tests pass cleanly
 
 ## Conclusion
 
-The Indore QA Cell project has **strong foundational infrastructure** built across all domains: ML model training/evaluation, novelty gate fusion, FastAPI server with full route set, React web UI, SQLite persistence, MES outbox with HMAC signing, and comprehensive test suites. 
+The Inspectra project has **strong foundational infrastructure** built across all domains: ML model training/evaluation, novelty gate fusion, FastAPI server with full route set, React web UI, SQLite persistence, MES outbox with HMAC signing, and comprehensive test suites. 
 
 The **steel gate negative separation** is properly handled (gate_trusted=False). The novelty story is the **trusted MVTec gate demo** (bottle / metal_nut / transistor), backed by measured defect-vs-good separation. The zero-leakage result for `rolled-in_scale` is a separate integrity claim, not an UNKNOWN-escalation demo.
 

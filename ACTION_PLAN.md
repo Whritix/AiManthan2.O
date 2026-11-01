@@ -1,4 +1,4 @@
-# Indore QA Cell — Action Plan
+# Inspectra — Action Plan
 
 > **Superseded as of 2026-10-29.** The detector is trained and promoted; the 1,470-image retrain was evaluated and promoted on the 640 deployment path. Current commands and metrics live in `README.md` and `OPTIMIZATION_CONTEXT.md`. This file is historical.
 

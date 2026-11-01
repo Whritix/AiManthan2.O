@@ -48,7 +48,7 @@ class MockRequest:
 
 
 async def main():
-    print("=== Indore QA Cell In-Memory E2E Test ===", flush=True)
+    print("=== Inspectra In-Memory E2E Test ===", flush=True)
 
     # 1. State setup
     settings.ensure_dirs()

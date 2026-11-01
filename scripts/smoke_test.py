@@ -44,7 +44,7 @@ def warn(label: str, detail: str = "") -> None:
     warnings.append(label)
 
 
-print("\n--- Indore QA Cell -- Smoke Test ---\n")
+print("\n--- Inspectra -- Smoke Test ---\n")
 
 # ── 1. Core imports ───────────────────────────────────────────────────────
 print("[1] Python imports")

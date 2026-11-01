@@ -1,4 +1,4 @@
-"""Runtime configuration for the Indore QA cell."""
+"""Runtime configuration for the Inspectra."""
 from __future__ import annotations
 
 import os

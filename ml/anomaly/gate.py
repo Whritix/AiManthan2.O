@@ -1,4 +1,4 @@
-"""PatchCore-lite novelty gate for the Indore inspection cell.
+"""PatchCore-lite novelty gate for Inspectra.
 
 Design (deliberately small and auditable):
   * Frozen ImageNet ResNet-18 backbone, features from layer2 (1/8) and

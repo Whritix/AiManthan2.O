@@ -34,7 +34,7 @@ A validation-only masking diagnostic gave AUC **0.9945** when retaining the scre
 
 ## Local app integration
 
-- Open `/m2-body.html` on the local Indore server for the dedicated upload page.
+- Open `/m2-body.html` on the local Inspectra server for the dedicated upload page.
 - `GET /api/m2-body/status` reports availability and the frozen test metrics.
 - `PUT /api/m2-body/classify` accepts raw BMP/JPEG/PNG/WEBP image bytes, rejects undecodable images and sizes other than 1024 × 1280, and returns OK/NG plus NG model probability and the fixed threshold.
 - The model is optional and loaded lazily. `INDORE_M2_BODY_WEIGHTS` can point to the checkpoint. If absent on another machine or Render, the page shows unavailable. The route does not change the live YOLO inspection profile or database.

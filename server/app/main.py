@@ -195,7 +195,7 @@ def _seed_models(settings: Settings, db: Database, registry: ProfileRegistry) ->
 
 
 app = FastAPI(
-    title="Indore QA Cell",
+    title="Inspectra",
     version=settings.version,
     description="Real-time surface inspection with YOLO11s + PatchCore-lite novelty fusion.",
     lifespan=lifespan,
@@ -1212,7 +1212,7 @@ else:
         return HTMLResponse(
             """
             <html><body style="background:#0b0f14;color:#d6e2ea;font-family:system-ui;padding:48px">
-            <h1>INDORE QA CELL</h1>
+            <h1>INSPECTRA</h1>
             <p>The API is running. The web client is not built yet.</p>
             <pre style="background:#131b24;padding:16px">cd web
 npm install

@@ -1,4 +1,4 @@
-# Indore QA Cell — Complete Project Handoff
+# Inspectra — Complete Project Handoff
 
 **Snapshot date:** 1 November 2026  
 **Purpose:** Jury handoff, project transfer, and context for another AI assistant.  
@@ -9,7 +9,7 @@
 
 ## 1. Executive summary
 
-Indore QA Cell is a computer-vision inspection prototype. It accepts an image or video, identifies one of five supported product families, runs a defect detector, overlays defect names and boxes, assigns a prototype disposition, and saves evidence for operator review.
+Inspectra is a computer-vision inspection prototype. It accepts an image or video, identifies one of five supported product families, runs a defect detector, overlays defect names and boxes, assigns a prototype disposition, and saves evidence for operator review.
 
 Supported product families:
 
@@ -606,7 +606,7 @@ Indore/
 
 ## 21. Jury-ready description
 
-> **Indore QA Cell is a real-time visual quality-inspection prototype for steel, metal nuts, screws, transistors, and bottles. It identifies the product automatically, detects one of 21 trained defect classes, displays boxes and confidence, and sends uncertain product inputs to a human review queue. The prototype records inspection evidence and demonstrates PASS/REVIEW/FAIL and simulated line-routing decisions. The unified model currently scores 70.1% mAP50 on an internal 789-image prepared test split; real factory-camera validation and physical PLC integration remain future work.**
+> **Inspectra is a real-time visual quality-inspection prototype for steel, metal nuts, screws, transistors, and bottles. It identifies the product automatically, detects one of 21 trained defect classes, displays boxes and confidence, and sends uncertain product inputs to a human review queue. The prototype records inspection evidence and demonstrates PASS/REVIEW/FAIL and simulated line-routing decisions. The unified model currently scores 70.1% mAP50 on an internal 789-image prepared test split; real factory-camera validation and physical PLC integration remain future work.**
 
 ## 22. Dataset and technical references
 

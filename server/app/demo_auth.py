@@ -1,4 +1,4 @@
-"""Role-based cookie authentication for the Indore QA Cell demo."""
+"""Role-based cookie authentication for the Inspectra demo."""
 from __future__ import annotations
 
 import base64

@@ -34,7 +34,7 @@ def main():
     if settings.detector_mode not in {"real", "unified"}:
         raise SystemExit("Set INDORE_DETECTOR=real or unified so E2E uses actual YOLO inference")
     print("================================================================")
-    print("      INDORE QA CELL - END-TO-END WORKFLOW INTEGRATION TEST     ")
+    print("      INSPECTRA - END-TO-END WORKFLOW INTEGRATION TEST     ")
     print("================================================================")
 
     # Use test client with lifespan context

@@ -1,4 +1,4 @@
-"""Train the NEU-DET detector with the frozen Indore recipe.
+"""Train the NEU-DET detector with the frozen Inspectra recipe.
 
 Usage:
     python ml/train/train_yolo.py --model yolo11s.pt --epochs 120

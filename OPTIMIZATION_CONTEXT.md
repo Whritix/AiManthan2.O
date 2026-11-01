@@ -1,6 +1,6 @@
-# Indore QA Cell — Complete System Context & Technical Master Brief
+# Inspectra — Complete System Context & Technical Master Brief
 **Date:** October 29, 2026  
-**System Name:** Indore Industrial AI Quality Assurance Cell  
+**System Name:** Inspectra Industrial AI Quality Assurance System  
 **Hardware Profile:** NVIDIA GeForce RTX 4060 Laptop GPU (8,188 MiB VRAM), 32 GB System RAM, Windows 11  
 **Core Technologies:** PyTorch 2.11.0+cu128, Ultralytics 8.4.190, OpenCV 5.0.0, ONNX Runtime 1.31.1, FastAPI, React/TypeScript, SQLite WAL
 
@@ -8,7 +8,7 @@
 
 ## 1. Project Overview & System Purpose
 
-The **Indore QA Cell** is an edge-deployed surface inspection system for cold-rolled steel strip. It processes live camera frames or dataset replay, detects known surface defects, scores novelty against a good-part memory bank, and routes each part to **PASS / REVIEW / FAIL**.
+Inspectra is an edge-deployed surface inspection system for cold-rolled steel strip. It processes live camera frames or dataset replay, detects known surface defects, scores novelty against a good-part memory bank, and routes each part to **PASS / REVIEW / FAIL**.
 
 The 640 deployment path runs in about **12.6 ms p50** on the RTX 4060. The 1024 + TTA benchmark path runs in about **73 ms**. "Sub-50 ms" therefore describes the 640 deployment path, not the 1024 TTA path.
 

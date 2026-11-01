@@ -127,7 +127,7 @@ def main() -> None:
         "note": "Includes limited MVTec AD and NEU-DET sample images. Keep the repository private and observe dataset licenses."
     }, indent=2), encoding="utf-8")
     (TARGET / "render.yaml").write_text(
-        "services:\n  - type: web\n    name: inspection-ai-demo\n    runtime: docker\n"
+        "services:\n  - type: web\n    name: inspectra-demo\n    runtime: docker\n"
         "    plan: 2c-8g\n    region: singapore\n    branch: main\n"
         "    autoDeployTrigger: off\n    healthCheckPath: /healthz\n"
         "    envVars:\n"
